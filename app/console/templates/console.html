@@ -19,6 +19,8 @@
   pre { background:#fff; border:1px solid #ddd; padding:.6rem; max-height:260px; overflow:auto; font-size:.75rem; }
   .row { display:flex; gap:2rem; flex-wrap:wrap; }
   .col { flex:1; min-width:340px; }
+  .lane { display:flex; align-items:center; gap:.25rem; margin:.35rem 0; flex-wrap:wrap; }
+  .branch { margin-left:2rem; border-left:3px solid #bbb; padding-left:1rem; }
 </style>
 </head>
 <body>
@@ -52,11 +54,12 @@
 <script>
 let current = null;
 const j = (r) => r.json();
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function refreshRuns() {
   const runs = await fetch('/api/v1/runs').then(j);
   document.getElementById('runs').innerHTML = runs.map(r =>
-    `<button onclick="openRun('${r.run_id}')">${r.run_id} [${r.scenario}] — ${r.status}</button>`
+    `<button onclick="openRun('${esc(r.run_id)}')">${esc(r.run_id)} [${esc(r.scenario)}] — ${esc(r.status)}</button>`
   ).join('<br>');
 }
 
@@ -80,15 +83,20 @@ async function openRun(id) {
   document.getElementById('detail').style.display = 'block';
   document.getElementById('runId').textContent = id;
   document.getElementById('runStatus').textContent = run.status;
-  const order = ['requirement','architecture','plan','implementation','test_generation',
-                 'documentation','security_review','validation','release_readiness'];
-  document.getElementById('dag').innerHTML = order.map(n => {
-    const node = run.nodes[n];
-    return `<span class="node ${node.status}" title="attempts: ${node.attempts}${node.error ? '\\n'+node.error : ''}">${n}<br><small>${node.status}</small></span>`;
-  }).join(' → ');
+  const lanes = [
+    ['requirement'], ['architecture'], ['plan'], ['implementation'],
+    ['test_generation','documentation','security_review'], ['validation'], ['release_readiness']
+  ];
+  document.getElementById('dag').innerHTML = lanes.map((lane, index) => {
+    const body = lane.map(n => {
+      const node = run.nodes[n];
+      return `<span class="node ${esc(node.status)}" title="attempts: ${esc(node.attempts)}${node.error ? '\\n'+esc(node.error) : ''}">${esc(n)}<br><small>${esc(node.status)}</small></span>`;
+    }).join(index === 4 ? ' ⇄ ' : ' → ');
+    return `<div class="lane${index === 4 ? ' branch' : ''}">${body}</div>`;
+  }).join('');
   const waiting = order.filter(n => run.nodes[n].status === 'waiting_approval');
   document.getElementById('approvals').innerHTML = waiting.map(n =>
-    `<b>${n} awaits approval:</b>
+    `<b>${esc(n)} awaits approval:</b>
      <button onclick="decide('${n}', true)">Approve</button>
      <button onclick="decide('${n}', false)">Reject</button>`).join('<br>');
   document.getElementById('metrics').textContent = JSON.stringify(metrics, null, 2);

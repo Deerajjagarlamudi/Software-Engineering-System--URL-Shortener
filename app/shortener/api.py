@@ -39,6 +39,8 @@ def _to_response(link, request: Request) -> LinkResponse:
 
 @router.post("/api/v1/links", response_model=LinkResponse, status_code=201)
 def create_link(body: CreateLinkRequest, request: Request, session: Session = Depends(get_session)):
+    client_key = request.client.host if request.client else "unknown"
+    service.creation_limiter.check(client_key)
     link = service.create_link(session, body.target_url, body.custom_alias, body.expires_at)
     return _to_response(link, request)
 

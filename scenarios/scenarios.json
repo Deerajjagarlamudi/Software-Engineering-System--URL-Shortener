@@ -9,7 +9,7 @@
     "expected": {
       "final_status": "completed",
       "approval_gates": ["architecture", "implementation", "release_readiness"],
-      "workspace_contains": ["shortcode/codec.py", "tests/test_codec.py", "docs/CHANGES.md"]
+      "workspace_contains": ["shortcode/app.py", "tests/test_generated_http.py", "docs/CHANGES.md"]
     }
   },
   "brownfield": {
@@ -22,7 +22,7 @@
     "expected": {
       "final_status": "completed",
       "impact_analysis_nonempty": true,
-      "workspace_contains": ["shortcode/expiry.py", "tests/test_expiry.py"]
+      "workspace_contains": ["migrations/001_add_expires_at.sql", "tests/test_generated_http.py"]
     }
   },
   "ambiguous": {

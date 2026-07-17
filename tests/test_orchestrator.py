@@ -1,4 +1,5 @@
 """Engine-level tests: gates, retries, rollback, re-planning, policy, approvals."""
+
 from app.orchestrator import engine, store
 from app.orchestrator.models import NodeStatus, RunStatus
 from app.orchestrator.policies import PolicyViolation, check_patch
@@ -51,6 +52,13 @@ def test_chaos_retry_and_metrics():
     assert "retry_scheduled" in kinds
 
 
+def test_parallel_branch_retry_still_integrates_all_outputs():
+    run = engine.create_run("Build service", "greenfield", chaos_nodes={"test_generation"})
+    run = _approve_all(engine.step(run))
+    assert run.status == RunStatus.COMPLETED
+    assert "tests/test_generated_http.py" in engine.workspace.list_files(run.workspace)
+
+
 def test_approval_rejection_is_safe_stop():
     run = engine.step(engine.create_run("Build service", "greenfield"))
     run = engine.approve(run, "architecture", False, "design rejected", "pytest")
@@ -79,6 +87,52 @@ def test_replan_invalidates_downstream_only():
     assert run.status == RunStatus.WAITING_APPROVAL
     kinds = [e["kind"] for e in store.audit_trail(run.run_id)]
     assert "replan" in kinds
+
+
+def test_replan_reexecutes_with_superseded_artifacts():
+    run = _approve_all(engine.step(engine.create_run("Build service", "greenfield")))
+    old_ids = set(run.artifacts)
+    run = engine.replan(run, "Build service with rate limiting", "new scope", "reviewer")
+    assert run.status == RunStatus.WAITING_APPROVAL
+    run = _approve_all(run)
+    assert run.status == RunStatus.COMPLETED
+    assert old_ids
+    assert any(not artifact.active for artifact in run.artifacts.values())
+    assert any(artifact.version > 1 for artifact in run.artifacts.values())
+
+
+def test_workspace_apply_is_idempotent(tmp_path):
+    from app.orchestrator.workspace import apply_changes
+
+    workspace_path = str(tmp_path)
+    import subprocess
+
+    (tmp_path / ".gitkeep").write_text("")
+    subprocess.run(["git", "init", "-q"], cwd=workspace_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=workspace_path, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "pytest"], cwd=workspace_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=workspace_path, check=True)
+    revision, changed = apply_changes(workspace_path, {"x.txt": "same"}, [], "add")
+    same_revision, changed_again = apply_changes(workspace_path, {"x.txt": "same"}, [], "repeat")
+    assert changed and not changed_again and revision == same_revision
+
+
+def test_invalid_run_inputs_and_recovery():
+    import pytest
+
+    with pytest.raises(ValueError):
+        engine.build_graph("unsupported")
+    with pytest.raises(ValueError):
+        engine.create_run("Build service", "greenfield", {"not-a-node"})
+    run = engine.create_run("Build service", "greenfield")
+    run.nodes["requirement"].status = NodeStatus.RUNNING
+    recovered = engine.recover(run)
+    assert recovered.status == RunStatus.RECOVERY_REQUIRED
+    resumed = engine.resume(recovered)
+    assert resumed.status == RunStatus.WAITING_APPROVAL
 
 
 def test_policy_guardrails():

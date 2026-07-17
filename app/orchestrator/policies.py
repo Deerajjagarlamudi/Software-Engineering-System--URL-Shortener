@@ -1,4 +1,5 @@
 """Policy guardrails applied to agent output before it enters workflow state."""
+
 import re
 
 SECRET_PATTERNS = [

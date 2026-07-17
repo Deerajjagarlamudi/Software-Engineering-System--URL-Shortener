@@ -1,4 +1,5 @@
 """Database setup. SQLite by default; swap DATABASE_URL for PostgreSQL."""
+
 import os
 
 from sqlalchemy import create_engine

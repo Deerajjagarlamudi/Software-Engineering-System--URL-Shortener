@@ -1,4 +1,5 @@
 """SQLite persistence for workflow runs and audit events."""
+
 import json
 import os
 import sqlite3
@@ -60,17 +61,36 @@ def list_runs() -> list[dict]:
     out = []
     for (data,) in rows:
         d = json.loads(data)
-        out.append({
-            "run_id": d["run_id"], "scenario": d["scenario"], "status": d["status"],
-            "requirement": d["requirement"][:120], "created_at": d["created_at"],
-        })
+        out.append(
+            {
+                "run_id": d["run_id"],
+                "scenario": d["scenario"],
+                "status": d["status"],
+                "requirement": d["requirement"][:120],
+                "created_at": d["created_at"],
+            }
+        )
     return out
+
+
+def all_runs() -> list[WorkflowRun]:
+    """Load complete run state for aggregate metrics and restart recovery."""
+    with _lock:
+        conn = _conn()
+        try:
+            rows = conn.execute("SELECT data FROM runs ORDER BY updated_at").fetchall()
+        finally:
+            conn.close()
+    return [WorkflowRun.from_dict(json.loads(data)) for (data,) in rows]
 
 
 def audit(run_id: str, kind: str, detail: dict | None = None) -> AuditEvent:
     ev = AuditEvent(
-        event_id=uuid.uuid4().hex, run_id=run_id, at=time.time(),
-        kind=kind, detail=detail or {},
+        event_id=uuid.uuid4().hex,
+        run_id=run_id,
+        at=time.time(),
+        kind=kind,
+        detail=detail or {},
     )
     with _lock:
         conn = _conn()

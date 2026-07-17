@@ -2,47 +2,51 @@
 
 ## Plan and rationale
 
-The assignment has two deliverables in one: a production-style URL shortener and — the differentiator — an agentic orchestration layer that runs the SDLC for it under governance. I built the orchestrator as a first-class, persisted DAG engine rather than a linear chain, because the rubric's hardest requirements (re-planning, parallel synchronization, approval gates, rollback) all require explicit graph state.
+The prototype combines a working URL shortener with a governed SDLC orchestrator. The
+orchestrator is a persisted dependency graph rather than a linear chain so it can pause at
+human gates, fan out independent work, synchronize validation, retry bounded failures,
+roll back changes, and re-plan when the requirement changes.
 
-The system defaults to a deterministic mock LLM adapter so every scenario, test, and metric is reproducible offline; a real Anthropic adapter is one environment variable away and flows through the same schema-validation and policy guardrails.
+Mock mode is deterministic and offline. Anthropic mode uses the same schema and policy path,
+but obtains the artifact from Claude’s structured tool output. Generated changes are never
+written to the primary repository.
 
 ## Rubric-to-evidence map
 
 | Requirement | Evidence |
 |---|---|
-| Requirement understanding / ambiguity | `agents.py::_mock_requirement` detects unmeasurable terms, records assumptions; ambiguous runs pause for sign-off (`test_ambiguous_requires_requirement_approval`) |
-| Task decomposition | Planner artifact with task IDs + dependencies; brownfield includes impacted-module impact analysis (`test_brownfield_scenario`) |
-| Codebase reasoning (brownfield) | Plan artifact lists impacted modules/APIs; regression tests generated alongside the change |
-| Workflow orchestration | `engine.py`: dependency graph, entry/exit gates, parallel fan-out + synchronization (`test_parallel_branch_synchronization`), persisted state, decision lineage on every artifact |
-| Human approval checkpoints | Architecture, patch application, release gates; rationale + actor recorded; rejection = safe stop (`test_approval_rejection_is_safe_stop`) |
-| Bounded retries / rollback / safe-stop | Retry budget per node, git rollback on exhaustion, cancel endpoint (`test_chaos_retry_and_metrics`) |
-| Policy guardrails | `policies.py` secret + destructive-pattern scanning; violations halt without retry (`test_policy_guardrails`) |
-| Audit observability | Immutable audit events for every transition/decision; `/audit` endpoint; artifact content hashes |
-| Reliability metrics | `/metrics`: success rate, retries, rollbacks, approvals, per-node latency, end-to-end latency; chaos injection makes them non-trivial |
-| Dynamic re-planning | `/replan` invalidates only downstream nodes and re-executes (`test_replan_invalidates_downstream_only`) |
-| Engineering output quality | Typed Python, layered modules, 20 passing tests (unit/engine/e2e), OpenAPI docs |
-| Controlled autonomy | Agents execute; humans own approvals — enforced by the engine, not convention |
+| Requirement understanding / ambiguity | Requirement artifact records ambiguities, assumptions, acceptance criteria, and approval before decomposition; `test_ambiguous_requires_requirement_approval` |
+| Task decomposition | Planner artifact contains task IDs, dependencies, and baseline manifest impact analysis |
+| Brownfield reasoning | Brownfield baseline contains regression tests; generated plan identifies impacted files and adds an expiry migration |
+| Workflow orchestration | `engine.py` implements persisted DAG scheduling, parallel fan-out, synchronization, state transitions, and lineage |
+| Human oversight | Architecture, implementation, release, and ambiguous-requirement gates record actor, rationale, and timestamp |
+| Retry / rollback / safe stop | Chaos tests inject provider failure; stage checkpoints support bounded retry and rollback; rejection and cancellation safe-stop |
+| Policy guardrails | Secret, destructive-pattern, traversal, and symlink checks run before generated changes are applied |
+| Audit observability | Every transition, decision, retry, rollback, patch, artifact hash, and provider result is stored in the audit trail |
+| Reliability metrics | Per-run `/metrics` plus aggregate `/api/v1/metrics` expose success, retry, rollback, MTTR, approval, and latency data |
+| Dynamic replanning | `/replan` resets to baseline, preserves inactive superseded artifacts, and re-runs renewed gates |
+| Engineering output | Greenfield, brownfield, and ambiguous workflows generate HTTP services, migrations, tests, and documentation in isolated workspaces |
+| Controlled autonomy | Agents can generate artifacts, but the engine alone can apply high-impact changes after approval |
 
-## Validation approach
+## Validation
 
-Three levels: unit tests on domain logic (aliases, expiry, collisions, idempotency, policies), engine tests on orchestration semantics (gates, retries, rollback, re-planning, persistence round-trip), and end-to-end scenario tests through the HTTP API using the reproducible inputs in `scenarios/scenarios.json`. The validation node in each run additionally executes the *generated* test suite inside the run's sandbox — the workflow proves its own output.
+The repository has unit tests for URL validation and persistence, engine tests for graph
+semantics and governance, and HTTP end-to-end tests for all three scenarios. Each workflow’s
+validation node runs the generated HTTP test suite inside its own Git workspace.
+
+Run the complete quality gate with:
+
+```bash
+uv sync --all-extras
+uv run ruff check app tests
+uv run mypy app
+uv run pytest -q --cov=app
+```
 
 ## Risks and trade-offs
 
-- **Synchronous stepping:** runs execute in-request and pause at gates. Simple and debuggable; a production system would use a worker queue. Chosen deliberately for prototype clarity.
-- **Mock-first agents:** mock outputs are deterministic templates. This trades generative variety for reproducibility; the adapter seam and shared schema validation mean real-LLM output takes the identical governed path.
-- **Rollback granularity:** rollback resets the sandbox to the initial checkpoint on retry exhaustion. Finer-grained (per-stage) restoration is a straightforward extension since every commit is a checkpoint.
-- **Single-process SQLite:** appropriate for the demo; repository pattern and DATABASE_URL keep the PostgreSQL path open.
-- **Rate limiting:** designed (architecture artifact) but not enforced in middleware — noted as a limitation rather than half-implemented.
-
-## Assumptions
-
-- Local-first deployment; containers provided, cloud optional.
-- Generated changes are only ever applied to per-run sandboxes; promotion to a real repo would sit behind the release approval gate.
-- The console is a reviewer tool, not an end-user product.
-
-## Limitations
-
-- No SSE streaming (console polls every 4s), no OpenTelemetry/Prometheus exporters (metrics are exposed as JSON; exporters are additive).
-- Real-LLM mode is wired but responses are not yet parsed into role schemas per-provider; mock mode is the assessed path.
-- No authentication on the console/APIs — out of scope for a local prototype, required before any deployment.
+- Synchronous stepping is easier to inspect in an interview demo; a worker queue is the next production step.
+- SQLite and the in-memory limiter are reproducible local defaults; use PostgreSQL/Redis adapters when scaling out.
+- Polling keeps the console dependency-free; SSE would be appropriate for a long-running worker architecture.
+- Raw referrer and user-agent values are retained only for the configured recent-event window and require a documented privacy policy in production.
+- No authentication is included for the local reviewer console or APIs.

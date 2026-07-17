@@ -23,7 +23,7 @@ docker compose up --build
 ## Run the tests
 
 ```bash
-pytest -q            # 20 tests: unit, engine, e2e scenarios via HTTP API
+uv run --extra dev pytest -q --cov=app
 ```
 
 ## Try the three assessment scenarios
@@ -62,6 +62,7 @@ Reproducible scenario inputs and expected outcomes: [`scenarios/scenarios.json`]
 
 ```bash
 export LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-...
+# Set LLM_MODEL to an available model ID before running.
 ```
 
 Mock mode remains the default so every demo and test is reproducible offline.
@@ -73,7 +74,8 @@ Mock mode remains the default so every demo and test is reproducible offline.
 | `POST /api/v1/links`, `GET /{code}`, `GET /api/v1/links/{code}/analytics`, `DELETE /api/v1/links/{code}` | URL shortener |
 | `POST /api/v1/runs` | Submit a requirement (scenario: greenfield/brownfield/ambiguous) |
 | `GET /api/v1/runs/{id}` / `/artifacts` / `/audit` / `/metrics` / `/workspace` | Run state, lineage, audit trail, reliability metrics, sandbox contents |
-| `POST /api/v1/runs/{id}/approvals/{node}` / `/retry` / `/replan` / `/cancel` | Human governance controls |
+| `POST /api/v1/runs/{id}/approvals/{node}` / `/retry` / `/replan` / `/resume` / `/cancel` | Human governance controls |
+| `GET /api/v1/metrics` | Aggregate success, retry, rollback, MTTR, and latency metrics |
 
 ## Documentation
 
