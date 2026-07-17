@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Orchestration Console</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; margin: 2rem; background:#f7f7f5; color:#222; }
+  h1 { font-size: 1.3rem; } h2 { font-size: 1.05rem; margin-top: 1.5rem; }
+  .node { display:inline-block; padding:.4rem .8rem; margin:.2rem; border-radius:6px; font-size:.85rem; border:1px solid #ccc; background:#fff; }
+  .completed { background:#d9f2d9; border-color:#7bc47b; }
+  .running, .ready { background:#fff3cd; border-color:#e0c060; }
+  .waiting_approval { background:#ffe3b3; border-color:#e09b3d; font-weight:600; }
+  .failed { background:#f8d7da; border-color:#d9534f; }
+  .pending, .invalidated { opacity:.6; }
+  table { border-collapse: collapse; font-size:.85rem; background:#fff; }
+  td, th { border:1px solid #ddd; padding:.35rem .6rem; text-align:left; }
+  button { margin:.1rem; padding:.3rem .7rem; cursor:pointer; }
+  textarea, input, select { font-family:inherit; padding:.3rem; }
+  pre { background:#fff; border:1px solid #ddd; padding:.6rem; max-height:260px; overflow:auto; font-size:.75rem; }
+  .row { display:flex; gap:2rem; flex-wrap:wrap; }
+  .col { flex:1; min-width:340px; }
+</style>
+</head>
+<body>
+<h1>Agentic SDLC Orchestration Console</h1>
+
+<div>
+  <select id="scenario">
+    <option value="greenfield">greenfield</option>
+    <option value="brownfield">brownfield</option>
+    <option value="ambiguous">ambiguous</option>
+  </select>
+  <input id="requirement" size="60" placeholder="Requirement..." value="Build a URL shortener with analytics">
+  <input id="chaos" size="20" placeholder="chaos nodes (csv)">
+  <button onclick="createRun()">Submit requirement</button>
+</div>
+
+<h2>Runs</h2>
+<div id="runs"></div>
+
+<div id="detail" style="display:none">
+  <h2>Run <span id="runId"></span> — <span id="runStatus"></span></h2>
+  <div id="dag"></div>
+  <div id="approvals"></div>
+  <div class="row">
+    <div class="col"><h2>Metrics</h2><pre id="metrics"></pre></div>
+    <div class="col"><h2>Audit trail</h2><pre id="audit"></pre></div>
+  </div>
+  <h2>Artifacts (with lineage)</h2><pre id="artifacts"></pre>
+</div>
+
+<script>
+let current = null;
+const j = (r) => r.json();
+
+async function refreshRuns() {
+  const runs = await fetch('/api/v1/runs').then(j);
+  document.getElementById('runs').innerHTML = runs.map(r =>
+    `<button onclick="openRun('${r.run_id}')">${r.run_id} [${r.scenario}] — ${r.status}</button>`
+  ).join('<br>');
+}
+
+async function createRun() {
+  const chaos = document.getElementById('chaos').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const res = await fetch('/api/v1/runs', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({requirement: document.getElementById('requirement').value,
+                          scenario: document.getElementById('scenario').value,
+                          chaos_nodes: chaos})}).then(j);
+  await refreshRuns(); openRun(res.run_id);
+}
+
+async function openRun(id) {
+  current = id;
+  const [run, metrics, audit, artifacts] = await Promise.all([
+    fetch(`/api/v1/runs/${id}`).then(j),
+    fetch(`/api/v1/runs/${id}/metrics`).then(j),
+    fetch(`/api/v1/runs/${id}/audit`).then(j),
+    fetch(`/api/v1/runs/${id}/artifacts`).then(j),
+  ]);
+  document.getElementById('detail').style.display = 'block';
+  document.getElementById('runId').textContent = id;
+  document.getElementById('runStatus').textContent = run.status;
+  const order = ['requirement','architecture','plan','implementation','test_generation',
+                 'documentation','security_review','validation','release_readiness'];
+  document.getElementById('dag').innerHTML = order.map(n => {
+    const node = run.nodes[n];
+    return `<span class="node ${node.status}" title="attempts: ${node.attempts}${node.error ? '\\n'+node.error : ''}">${n}<br><small>${node.status}</small></span>`;
+  }).join(' → ');
+  const waiting = order.filter(n => run.nodes[n].status === 'waiting_approval');
+  document.getElementById('approvals').innerHTML = waiting.map(n =>
+    `<b>${n} awaits approval:</b>
+     <button onclick="decide('${n}', true)">Approve</button>
+     <button onclick="decide('${n}', false)">Reject</button>`).join('<br>');
+  document.getElementById('metrics').textContent = JSON.stringify(metrics, null, 2);
+  document.getElementById('audit').textContent = audit.map(e =>
+    `${new Date(e.at*1000).toLocaleTimeString()}  ${e.kind}  ${JSON.stringify(e.detail)}`).join('\n');
+  document.getElementById('artifacts').textContent = JSON.stringify(artifacts, null, 2);
+}
+
+async function decide(node, approved) {
+  const rationale = prompt(`Rationale for ${approved ? 'approving' : 'rejecting'} ${node}:`, 'Reviewed and acceptable');
+  if (rationale === null) return;
+  await fetch(`/api/v1/runs/${current}/approvals/${node}`, {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({approved, rationale, actor:'console-user'})});
+  openRun(current); refreshRuns();
+}
+
+setInterval(() => { if (current) openRun(current); refreshRuns(); }, 4000);
+refreshRuns();
+</script>
+</body>
+</html>

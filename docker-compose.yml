@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////data/app.db
+      - ORCHESTRATOR_DB=/data/orchestrator.db
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - appdata:/data
+volumes:
+  appdata:

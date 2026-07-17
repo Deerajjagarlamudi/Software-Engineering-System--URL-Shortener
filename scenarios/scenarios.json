@@ -1,0 +1,41 @@
+{
+  "greenfield": {
+    "description": "Build the initial URL-shortening service from scratch.",
+    "input": {
+      "requirement": "Build a URL shortener service with create/resolve/delete APIs, custom aliases, expiration, and click analytics",
+      "scenario": "greenfield",
+      "chaos_nodes": []
+    },
+    "expected": {
+      "final_status": "completed",
+      "approval_gates": ["architecture", "implementation", "release_readiness"],
+      "workspace_contains": ["shortcode/codec.py", "tests/test_codec.py", "docs/CHANGES.md"]
+    }
+  },
+  "brownfield": {
+    "description": "Enhance the existing service with expiring links; shows impact analysis, regression tests, sandboxed patching, rollback capability.",
+    "input": {
+      "requirement": "Add link expiration to the existing URL shortener: expired links must return 410, create API accepts expires_at, existing redirect behaviour must not regress",
+      "scenario": "brownfield",
+      "chaos_nodes": []
+    },
+    "expected": {
+      "final_status": "completed",
+      "impact_analysis_nonempty": true,
+      "workspace_contains": ["shortcode/expiry.py", "tests/test_expiry.py"]
+    }
+  },
+  "ambiguous": {
+    "description": "Vague requirement: agent must surface ambiguity, propose measurable interpretations, record assumptions, and pause for human sign-off before decomposition.",
+    "input": {
+      "requirement": "make shortened links secure and reliable",
+      "scenario": "ambiguous",
+      "chaos_nodes": []
+    },
+    "expected": {
+      "pauses_at": "requirement",
+      "needs_clarification": true,
+      "final_status_after_approvals": "completed"
+    }
+  }
+}
