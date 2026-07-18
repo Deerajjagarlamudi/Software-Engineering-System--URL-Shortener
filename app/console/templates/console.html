@@ -44,6 +44,7 @@
   <h2>Run <span id="runId"></span> — <span id="runStatus"></span></h2>
   <div id="dag"></div>
   <div id="approvals"></div>
+  <p id="decisionStatus" role="status"></p>
   <div class="row">
     <div class="col"><h2>Metrics</h2><pre id="metrics"></pre></div>
     <div class="col"><h2>Audit trail</h2><pre id="audit"></pre></div>
@@ -94,9 +95,11 @@ async function openRun(id) {
     }).join(index === 4 ? ' ⇄ ' : ' → ');
     return `<div class="lane${index === 4 ? ' branch' : ''}">${body}</div>`;
   }).join('');
+  const order = lanes.flat();
   const waiting = order.filter(n => run.nodes[n].status === 'waiting_approval');
   document.getElementById('approvals').innerHTML = waiting.map(n =>
     `<b>${esc(n)} awaits approval:</b>
+     <label>Rationale <input id="rationale-${esc(n)}" value="Reviewed and acceptable"></label>
      <button onclick="decide('${n}', true)">Approve</button>
      <button onclick="decide('${n}', false)">Reject</button>`).join('<br>');
   document.getElementById('metrics').textContent = JSON.stringify(metrics, null, 2);
@@ -106,12 +109,23 @@ async function openRun(id) {
 }
 
 async function decide(node, approved) {
-  const rationale = prompt(`Rationale for ${approved ? 'approving' : 'rejecting'} ${node}:`, 'Reviewed and acceptable');
-  if (rationale === null) return;
-  await fetch(`/api/v1/runs/${current}/approvals/${node}`, {method:'POST',
+  const status = document.getElementById('decisionStatus');
+  const rationale = document.getElementById(`rationale-${node}`).value.trim();
+  if (!rationale) {
+    status.textContent = 'Please enter an approval rationale.';
+    return;
+  }
+  status.textContent = approved ? 'Approving…' : 'Rejecting…';
+  const response = await fetch(`/api/v1/runs/${current}/approvals/${node}`, {method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({approved, rationale, actor:'console-user'})});
-  openRun(current); refreshRuns();
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    status.textContent = `Decision failed: ${error.detail || response.statusText}`;
+    return;
+  }
+  status.textContent = approved ? `${node} approved.` : `${node} rejected.`;
+  await Promise.all([openRun(current), refreshRuns()]);
 }
 
 setInterval(() => { if (current) openRun(current); refreshRuns(); }, 4000);
